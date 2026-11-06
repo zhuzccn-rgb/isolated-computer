@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { chromium } from 'playwright';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { root,fixtureServer,spawnReady,waitFor } from './helpers.mjs';
+
+const python=process.env.IC_TEST_PYTHON??'python3',xvfb=process.env.IC_TEST_XVFB??'Xvfb';
+const directory=await mkdtemp(join(tmpdir(),'ic-handoff-'));
+const fixture=await fixtureServer();
+const session=await spawnReady(python,['desktop/linux_session.py','--xvfb',xvfb,'--token-file',join(directory,'display.token')]);
+let context,client,transport;const checks=[];
+function passed(name){checks.push(name);console.log('PASS '+name);}
+function meta(result){assert.ok(!result.isError,result.content[0].text);return JSON.parse(result.content[0].text);}
+try{
+  transport=new StdioClientTransport({command:process.execPath,args:['src/server.mjs'],cwd:root,env:{...process.env}});
+  client=new Client({name:'handoff-verifier',version:'1.0.0'});await client.connect(transport);
+  console.log('TEST MCP connected; starting private browser');
+  const status=meta(await client.callTool({name:'computer_status',arguments:{}}));
+  const extension=join(root,'dist/extensions/chrome');
+  const browserEnv=Object.fromEntries(Object.entries(process.env).filter(([key])=>!['WAYLAND_DISPLAY','DBUS_SESSION_BUS_ADDRESS','XAUTHORITY','SESSION_MANAGER'].includes(key)));
+  context=await chromium.launchPersistentContext(join(directory,'profile'),{channel:'chromium',headless:false,timeout:15000,chromiumSandbox:true,viewport:{width:1024,height:700},deviceScaleFactor:2,args:['--ozone-platform=x11',`--disable-extensions-except=${extension}`,`--load-extension=${extension}`],env:{...browserEnv,DISPLAY:session.info.isolation.display}});
+  console.log('TEST private browser started');
+  const worker=context.serviceWorkers()[0]??await context.waitForEvent('serviceworker',{timeout:15000});
+  console.log('TEST worker loaded: '+worker.url());
+  const bounded=(promise,ms=10000)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Worker operation timeout')),ms))]);
+  console.log('TEST worker API: '+JSON.stringify(await bounded(worker.evaluate(()=>({IC: Boolean(globalThis.IC),browser:typeof browser,chrome:typeof chrome})))));
+  await waitFor(()=>bounded(worker.evaluate(()=>Boolean(globalThis.IC))));
+  await bounded(worker.evaluate(pairing=>IC.connect(pairing),status.extensionURL));passed('real browser extension connected to MCP');
+  const form=await context.newPage();await form.goto(fixture.url+'/form');await form.locator('#text').fill('用户已填写一半');
+  await form.evaluate(()=>{window.memoryMarker={id:'LIVE-JS-STATE',steps:7};});
+  await context.addCookies([{name:'session',value:'existing-login',url:fixture.url}]);
+  const human=await context.newPage();await human.goto(fixture.url+'/human');await human.locator('#text').fill('HUMAN_SENTINEL');
+  const formTab=await worker.evaluate(async url=>(await chrome.tabs.query({})).find(t=>t.url===url),fixture.url+'/form');
+  await worker.evaluate(id=>chrome.windows.update(id,{focused:true}),formTab.windowId);
+  const probe=()=>JSON.parse(execFileSync(python,['tests/x11_probe.py',session.info.isolation.display],{cwd:root,encoding:'utf8'}));
+  const before=probe();
+  const lease=await worker.evaluate(async({id})=>IC.handoff(id,'继续填写，填好后通知我；不要提交。'),{id:formTab.id});
+  assert.equal(lease.mode,'cdp');
+  assert.equal(await form.evaluate(()=>memoryMarker.id),'LIVE-JS-STATE');assert.equal(await form.locator('#text').inputValue(),'用户已填写一半');assert.match(await form.evaluate(()=>document.cookie),/session=existing-login/);passed('same live tab preserves unsaved form, JS memory and login');
+  assert.equal(await worker.evaluate(id=>chrome.windows.get(id).then(w=>w.focused),formTab.windowId),true);assert.deepEqual(probe(),before);passed('handoff does not focus AI window or move system pointer');
+  const call=(name,args)=>client.callTool({name,arguments:args});
+  const tabs=meta(await call('handoff_tabs',{}));assert.equal(tabs.tabs.length,1);assert.equal(tabs.tabs[0].tab,String(formTab.id));passed('MCP lists only explicitly leased tab');
+  const shot=await call('handoff_observe',{tab:String(formTab.id),capture:'png'}),observed=meta(shot),scale=observed.coordinateScale;
+  const png=Buffer.from(shot.content.find(c=>c.type==='image').data,'base64');assert.equal(png.readUInt32BE(16),observed.width);assert.equal(png.readUInt32BE(20),observed.height);await writeFile(join(root,'artifacts/linux-handoff.png'),png);passed('existing tab screenshot and HiDPI coordinate mapping');
+  assert.equal(await worker.evaluate(id=>chrome.windows.get(id).then(w=>w.focused),formTab.windowId),true,'Screenshot must keep human window focused');
+  const semantic=await call('handoff_observe',{tab:String(formTab.id)}), tree=meta(semantic);
+  assert.equal(semantic.content.some(c=>c.type==='image'),false);
+  assert.match(tree.accessibility.source,/native accessibility/);
+  const inputRef=tree.accessibility.controls.find(c=>c.role==='textbox').ref;
+  const buttonRef=tree.accessibility.controls.find(c=>c.role==='button'&&c.name==='点击计数').ref;
+  const reread=meta(await call('handoff_observe',{tab:String(formTab.id)}));assert.equal(reread.accessibility.controls.find(c=>c.role==='textbox').ref,inputRef);
+  meta(await call('handoff_controls',{tab:String(formTab.id),actions:[{type:'fill',ref:inputRef,text:'用户已填写一半，AI 已接力'},{type:'click',ref:buttonRef}]}));
+  assert.equal(await form.locator('#text').inputValue(),'用户已填写一半，AI 已接力');await waitFor(()=>fixture.state().clicks===1);passed('native browser accessibility and screenshot-free live form continuation');
+  const pixel=await call('handoff_act',{tab:String(formTab.id),actions:[{type:'click',x:100*scale,y:80*scale}]});assert.equal(pixel.isError,true);passed('focus-sensitive pixel input rejected before dispatch');
+  assert.equal(await human.locator('#text').inputValue(),'HUMAN_SENTINEL');assert.equal(await worker.evaluate(id=>chrome.windows.get(id).then(w=>w.focused),formTab.windowId),true);assert.deepEqual(probe(),before);passed('other human tab, window focus and pointer unaffected by AI work');
+  const done=meta(await call('handoff_request_user',{tab:String(formTab.id),kind:'complete',reason:'表格已填写，等待你接回检查。'}));assert.equal(done.state,'complete');assert.equal(done.focused,false);
+  assert.equal((await call('handoff_act',{tab:String(formTab.id),actions:[{type:'wait',ms:0}],capture:'none'})).isError,true);passed('completion pauses ownership and requests notification without foreground activation');
+  await worker.evaluate(tab=>IC.takeBack(tab),String(formTab.id));
+  const restored=await worker.evaluate(id=>chrome.tabs.get(id),formTab.id);assert.equal(restored.windowId,formTab.windowId);assert.equal(await form.evaluate(()=>memoryMarker.id),'LIVE-JS-STATE');assert.equal(await form.locator('#text').inputValue(),'用户已填写一半，AI 已接力');passed('explicit human take-back restores the same tab and final form');
+  await worker.evaluate(id=>IC.handoff(id,'测试普通表单兼容模式',true),formTab.id);
+  const domShot=meta(await call('handoff_observe',{tab:String(formTab.id)}));assert.equal(domShot.mode,'dom');
+  await call('handoff_controls',{tab:String(formTab.id),actions:[{type:'fill',ref:domShot.accessibility.controls.find(c=>c.role==='textbox').ref,text:'DOM 表单已接力'}]}).then(meta);
+  assert.equal(await form.locator('#text').inputValue(),'DOM 表单已接力');passed('portable DOM form adapter works without debugger transport');
+  await form.evaluate(()=>{const f=document.createElement('form');f.style='position:absolute;left:360px;top:210px';const b=document.createElement('button');b.textContent='Submit';b.style='position:static;width:200px;height:60px';f.append(b);f.onsubmit=e=>{e.preventDefault();window.formSubmitted=true;};document.body.append(f);});
+  const submitTree=meta(await call('handoff_observe',{tab:String(formTab.id)}));
+  const submitRef=submitTree.accessibility.controls.find(c=>c.label==='Submit').ref;
+  const blocked=await call('handoff_controls',{tab:String(formTab.id),actions:[{type:'click',ref:submitRef}]});assert.equal(blocked.isError,true);assert.equal(await form.evaluate(()=>Boolean(window.formSubmitted)),false);assert.equal(meta(await call('handoff_tabs',{})).tabs[0].state,'waiting_user');passed('conventional submit pauses for confirmation before submission');
+  await worker.evaluate(tab=>IC.takeBack(tab),String(formTab.id));
+  await writeFile(join(root,'artifacts/linux-handoff-verification.json'),JSON.stringify({date:new Date().toISOString(),checks,devicePixelRatio:2,coordinateScale:scale,scope:'Real Chrome-for-Testing extension and live tabs in a private Linux Xvfb display. DOM fallback tested in Chrome, not yet Firefox/Safari. Notification request/state verified; OS notification delivery not verified.'},null,2));
+}finally{
+  await context?.close();await client?.close().catch(()=>{});await transport?.close().catch(()=>{});await session.stop();await fixture.close();
+}

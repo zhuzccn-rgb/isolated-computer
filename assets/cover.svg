@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" role="img" aria-labelledby="title desc">
+<title id="title">Isolated Computer</title><desc id="desc">Your desktop stays yours. Accessibility-first computer use with an independent workspace and human takeover.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#111827"/><stop offset="1" stop-color="#152e3b"/></linearGradient><linearGradient id="accent"><stop stop-color="#6ee7b7"/><stop offset="1" stop-color="#67e8f9"/></linearGradient></defs>
+<rect width="1280" height="480" rx="24" fill="url(#bg)"/>
+<circle cx="1170" cy="-60" r="270" fill="#2dd4bf" opacity=".05"/><circle cx="1210" cy="470" r="250" fill="#22d3ee" opacity=".04"/>
+<g font-family="system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">
+<rect x="64" y="58" width="180" height="30" rx="15" fill="#163f3e"/><text x="82" y="79" fill="#99f6e4" font-size="13" letter-spacing="2">LINUX · MCP · LOCAL</text>
+<text x="64" y="163" fill="#f8fafc" font-size="58" font-weight="750" letter-spacing="-2">Isolated Computer</text>
+<text x="67" y="213" fill="url(#accent)" font-size="29" font-weight="550">Your desktop stays yours.</text>
+<text x="67" y="262" fill="#b5c4d4" font-size="18">Let an agent work in the background.</text><text x="67" y="291" fill="#b5c4d4" font-size="18">Observe, pause, and take over when you need to.</text>
+<text x="67" y="402" fill="#93a8ba" font-size="13" letter-spacing="1.2">ACCESSIBILITY FIRST</text><circle cx="267" cy="397" r="2" fill="#5eead4"/><text x="285" y="402" fill="#93a8ba" font-size="13" letter-spacing="1.2">EXPLICIT HANDOFF</text>
+<g transform="translate(730 112)"><rect width="470" height="272" rx="15" fill="#0b1423" stroke="#355363"/>
+<path d="M0 43h470" stroke="#294252"/><circle cx="22" cy="23" r="5" fill="#fb7185"/><circle cx="41" cy="23" r="5" fill="#fbbf24"/><circle cx="60" cy="23" r="5" fill="#6ee7b7"/><text x="245" y="28" fill="#8ba4b9" font-size="12">independent workspace</text>
+<rect x="24" y="66" width="270" height="171" rx="8" fill="#142536" stroke="#2b4554"/>
+<rect x="42" y="85" width="118" height="7" rx="3.5" fill="#496777"/><rect x="42" y="111" width="232" height="29" rx="5" fill="#1b3543" stroke="#4b9b95"/><text x="54" y="131" fill="#c4e8e2" font-size="12">Continue my draft…</text><rect x="42" y="156" width="177" height="6" rx="3" fill="#314e60"/><rect x="42" y="172" width="205" height="6" rx="3" fill="#314e60"/><rect x="42" y="198" width="89" height="22" rx="5" fill="#1f665b"/><text x="55" y="213" fill="#baf7e7" font-size="10">Observe → act</text>
+<rect x="313" y="66" width="133" height="171" rx="8" fill="#13222e"/><circle cx="331" cy="88" r="4" fill="#6ee7b7"/><text x="343" y="92" fill="#c5dfdc" font-size="11">Agent ready</text><text x="328" y="124" fill="#8fa9ba" font-size="11">Native controls</text><text x="328" y="145" fill="#8fa9ba" font-size="11">Optional pixels</text><path d="M327 163h105" stroke="#2b4554"/><rect x="327" y="181" width="104" height="29" rx="5" fill="#173a3c" stroke="#438d82"/><text x="343" y="200" fill="#99f6e4" font-size="11">Take control</text></g></g></svg>

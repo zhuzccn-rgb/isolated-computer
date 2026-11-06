@@ -1,0 +1,92 @@
+{
+  "model": "gpt-6.1-terra",
+  "effort": "xhigh",
+  "after_sha256": {
+    "scripts/report-validation.mjs": "b5b728ffde9e08f70fe98958f383133d84fe7e3b115143b40d62ed2b050aff10",
+    "scripts/verify-all.mjs": "a40f8332f7705d2898521240c3141ef704785869e8c9847633583bb762f9e946",
+    "tests/firefox-protocol.mjs": "ccc291e34e813f100df275eeea7ef0d0d3cecca57d85a8785a4d1bc2220a4ff5",
+    "tests/firefox-driver.mjs": "67f89d045a4a2014d149fb4943b23679c27e486645edcadcb8839d3af954896a",
+    "tests/firefox-scenarios.mjs": "87185446df83e4c3f47198725b07b912e23d67fc759f589672bb9331ec660742",
+    "tests/firefox-human-keys.py": "da5134856d0d84c0750fc5d7b0ab312808f41531fb905435434e1a9d1a697653",
+    "tests/report-validation.test.mjs": "edaefcf58be21fcf36e399a4703e30716aad94598778216b5cfb3a48ff53e3cd"
+  },
+  "focused_firefox": {
+    "summary": {
+      "PASS": 11,
+      "FAIL": 0,
+      "LIMITATION": 0,
+      "INCONCLUSIVE": 0
+    },
+    "cases": [
+      {
+        "name": "system Firefox starts with real window manager",
+        "status": "PASS"
+      },
+      {
+        "name": "generated Firefox extension installs and receives runtime messages",
+        "status": "PASS"
+      },
+      {
+        "name": "Firefox extension connects to real MCP via authenticated WebSocket",
+        "status": "PASS"
+      },
+      {
+        "name": "real native browser-action toolbar button can be clicked during setup",
+        "status": "PASS"
+      },
+      {
+        "name": "in-place handoff retains window, index, form and live JS state",
+        "status": "PASS"
+      },
+      {
+        "name": "handoff leaves physical human focus and pointer unchanged under Openbox",
+        "status": "PASS"
+      },
+      {
+        "name": "MCP fills inactive live tab without screenshot or modifying human tab",
+        "status": "PASS"
+      },
+      {
+        "name": "semantic fill keeps physical human focus and pointer unchanged",
+        "status": "PASS"
+      },
+      {
+        "name": "physical human typing overlaps background handoff without stealing focus",
+        "status": "PASS"
+      },
+      {
+        "name": "foreground selection pauses ownership after concurrent input",
+        "status": "PASS"
+      },
+      {
+        "name": "explicit take-back revokes ownership after concurrent input",
+        "status": "PASS"
+      }
+    ],
+    "concurrency": {
+      "physicalPrecondition": true,
+      "overlapVerified": true,
+      "humanValueVerified": true,
+      "backgroundValueVerified": true,
+      "focusSamples": 156
+    },
+    "exit_code": 0,
+    "scope": "private Xvfb, Firefox DOM adapter; no idle or full suite"
+  },
+  "negative_protocol": {
+    "induced_missing_xvfb_exit": 1,
+    "induced_missing_window_manager_case_statuses": [
+      "FAIL",
+      "FAIL",
+      "FAIL",
+      "FAIL",
+      "PASS"
+    ],
+    "induced_missing_window_manager_exit": 1
+  },
+  "failure_classifier": "unit test PASS; historical four-failure report recognized",
+  "diagnosis": "EWMH activation and background DOM activeElement were insufficient: document.hasFocus was false and a physical q did not arrive. Resolving the human handle before handoff, then switching WebDriver to it and clicking its input established hasFocus=true and physical q. Enumerating windows after handoff activated the leased tab and correctly paused ownership; avoid that during concurrency. Private-display XTest keystrokes overlapped MCP actions, with no refocusing during overlap.",
+  "cleanup": "all matching test services exited",
+  "full_suite_run": false,
+  "ime_testing": "not part of this scope"
+}

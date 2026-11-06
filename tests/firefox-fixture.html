@@ -1,0 +1,35 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Firefox computer use evaluation</title>
+<style>body{font:14px sans-serif;padding:16px;margin:0;background:#f4f7fc}main{display:grid;grid-template-columns:280px 280px 280px;gap:8px}label{display:flex;flex-direction:column;gap:4px}input,textarea,select,button{font:inherit;padding:4px}button{min-height:30px}#offscreen{margin-top:1500px}iframe{width:270px;height:55px}canvas{background:#aac4ef}</style>
+<h1>Firefox 真实接力测试</h1><main>
+<label>姓名<input id="name"></label><label>备注<textarea id="notes"></textarea></label>
+<label>地区<select id="region"><option value="">请选择</option><option value="sh">上海</option><option value="bj">北京</option></select></label>
+<label><span>同意测试条款</span><input type="checkbox" id="agree" aria-label="同意测试条款"></label>
+<label>第一选项<input type="radio" name="choice" id="r1" value="one"></label><label>第二选项<input type="radio" name="choice" id="r2" value="two"></label>
+<button id="count" type="button">计数按钮</button><button id="trusted" type="button">可信事件按钮</button>
+<label>禁用字段<input id="disabled" disabled value="DISABLED_SENTINEL"></label><label>只读字段<input id="readonly" readonly value="READONLY_SENTINEL"></label>
+<label>密码<input id="password" type="password" value="FAKE_PASSWORD_SENTINEL"></label>
+<div id="custom" role="button" tabindex="0" aria-label="自定义语义按钮">自定义语义按钮</div>
+<div id="editor" contenteditable="true" role="textbox" aria-label="富文本编辑器">已有富文本</div>
+<button id="labelled" aria-labelledby="labelSource" type="button"></button><span id="labelSource">引用标签按钮</span>
+<canvas id="canvas" width="280" height="80"></canvas><div id="shadow"></div>
+<iframe id="same" src="/frame"></iframe><iframe id="cross" src="__CROSS_URL__/frame"></iframe>
+<button id="alert" type="button">打开网页对话框</button><button id="replace" type="button">替换姓名字段</button>
+<form id="form"><button id="submit" type="submit">提交表格</button></form></main>
+<label id="offscreen">视口外字段<input id="far"></label><pre id="result"></pre>
+<script>
+window.memoryMarker={id:'LIVE_FIREFOX_STATE',steps:7,nonce:crypto.randomUUID()};
+const state={clicks:0,custom:0,trustedAccepted:0,trustedRejected:0,submitted:0,canvasEvents:0,changes:0,scrollY:0};
+const $=id=>document.getElementById(id);
+window.evaluationState=()=>({...state,name:$('name').value,notes:$('notes').value,region:$('region').value,agree:$('agree').checked,r1:$('r1').checked,r2:$('r2').checked,disabled:$('disabled').value,readonly:$('readonly').value,marker:window.memoryMarker.id,nonce:window.memoryMarker.nonce,cookie:document.cookie,far:$('far').value});
+function report(){fetch('/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(evaluationState())});$('result').textContent=JSON.stringify(evaluationState());}
+for(const el of document.querySelectorAll('input,textarea,select'))el.addEventListener('input',report);
+document.addEventListener('change',()=>{state.changes++;report()});
+$('count').onclick=()=>{state.clicks++;report()};$('custom').onclick=()=>{state.custom++;report()};
+$('trusted').onclick=e=>{state[e.isTrusted?'trustedAccepted':'trustedRejected']++;report()};
+$('form').onsubmit=e=>{e.preventDefault();state.submitted++;report()};
+$('canvas').onpointerdown=()=>{state.canvasEvents++;report()};
+$('alert').onclick=()=>alert('需要人工接回的网页对话框');
+$('replace').onclick=()=>{const old=$('name'),n=old.cloneNode();n.value=old.value;old.replaceWith(n);n.addEventListener('input',report);report()};
+const shadow=$('shadow').attachShadow({mode:'open'});shadow.innerHTML='<label>Shadow 字段<input aria-label="Shadow 字段"></label>';
+onscroll=()=>{state.scrollY=scrollY;report()};report();
+</script></html>

@@ -1,0 +1,118 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {performance} from 'node:perf_hooks';
+import {chromium} from 'playwright';
+import WebSocket from 'ws';
+import {Client} from '@modelcontextprotocol/sdk/client/index.js';
+import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
+import {root,spawnReady,waitFor} from './helpers.mjs';
+const python=process.env.IC_TEST_PYTHON??'python3',xvfb=process.env.IC_TEST_XVFB??'Xvfb';
+const dir=await mkdtemp(join(tmpdir(),'ic-takeover-')),checks=[],pageErrors=[],latencies=[];
+const wire=[];let human,ai,client,transport,browser,page;const sockets=new Set();
+const pass=name=>{checks.push(name);console.log('PASS '+name);};
+const meta=r=>{assert.ok(!r.isError,r.content[0]?.text);return JSON.parse(r.content[0].text);};
+try{
+ for(const [name,sentinel] of [['human','HUMAN_SENTINEL'],['ai','']]){
+  const file=join(dir,name+'.json'),apps=join(dir,name+'-apps.json');
+  await writeFile(apps,JSON.stringify([[python,join(root,'tests/tk_fixture.py'),'--state',file,'--sentinel',sentinel]]));
+  const session=await spawnReady(python,['desktop/linux_session.py','--xvfb',xvfb,'--token-file',join(dir,name+'.token'),'--apps-file',apps]);
+  session.state=file;await waitFor(()=>readFile(file,'utf8').then(JSON.parse));if(name==='human')human=session;else ai=session;
+ }
+ const probe=s=>JSON.parse(execFileSync(python,['tests/x11_probe.py',s.info.isolation.display],{cwd:root,encoding:'utf8'}));
+ const keys=()=>JSON.parse(execFileSync(python,['tests/input_probe.py',ai.info.isolation.display],{cwd:root,encoding:'utf8'})).pressedKeys;
+ const state=()=>readFile(ai.state,'utf8').then(JSON.parse),humanBefore=probe(human),keysBefore=keys();
+ transport=new StdioClientTransport({command:process.execPath,args:['src/server.mjs'],cwd:root,env:{...process.env,DISPLAY:human.info.isolation.display,IC_DESKTOP_URL:ai.info.url,IC_DESKTOP_TOKEN_FILE:ai.info.tokenFile}});
+ client=new Client({name:'takeover-verifier',version:'1.0.0'});await client.connect(transport);
+ const call=(name,args={})=>client.callTool({name,arguments:args});
+ const status=meta(await call('computer_status')),url=new URL(status.viewerURL),token=url.hash.slice(1),headers={Authorization:'Bearer '+token};
+ const bridgeToken=(await readFile(ai.info.tokenFile,'utf8')).trim();
+ const health=()=>fetch(ai.info.url+'/health',{headers:{Authorization:'Bearer '+bridgeToken}}).then(r=>r.json());
+ const resume=()=>fetch(new URL('/resume',url),{method:'POST',headers}).then(async r=>{assert.equal(r.status,200,await r.text());});
+ browser=await chromium.launch({headless:true,chromiumSandbox:true});page=await browser.newPage({viewport:{width:900,height:1050}});
+ page.on('pageerror',e=>pageErrors.push(e.message));page.on('websocket',ws=>ws.on('framesent',f=>{try{const m=JSON.parse(f.payload);wire.push({op:m.op,events:m.events?.map(e=>({type:e.type,phase:e.phase,x:e.x,y:e.y,deltaY:e.deltaY}))});}catch{}}));await page.goto(status.viewerURL);await page.selectOption('#target','desktop');
+ await page.locator('#takeover:not([disabled])').waitFor();
+ assert.equal(await page.locator('#screen').isVisible(),false);pass('monitor defaults to accessibility/no image before human takeover');
+ await page.locator('#screen').evaluate(el=>{el.dataset.loads='0';el.addEventListener('load',()=>el.dataset.loads=String(Number(el.dataset.loads)+1));});
+ await page.check('#live');await waitFor(async()=>Number(await page.locator('#screen').getAttribute('data-loads'))>=2);await page.uncheck('#live');
+ pass('explicit live preview refreshes only after user enables it');
+ const running=call('desktop_act',{actions:[{type:'type',text:'INFLIGHT_START'},{type:'wait',ms:1000},{type:'type',text:'MUST_NOT_RUN'}]});
+ await waitFor(async()=>(await state()).text==='INFLIGHT_START');const began=performance.now();
+ await page.click('#takeover');await page.locator('#handback').waitFor();
+ const halted=await running;assert.equal(halted.isError,true);assert.equal((await state()).text,'INFLIGHT_START');
+ assert.equal((await health()).humanInput.humanOwned,true);pass('takeover stops pending AI batch and waits for its current action to finish');
+ assert.ok(performance.now()-began<6000);assert.equal((await call('desktop_act',{actions:[{type:'type',text:'AI_COLLISION'}]})).isError,true);
+ assert.equal((await call('desktop_controls',{actions:[{type:'click',ref:'anything'}]})).isError,true);pass('AI pixel and semantic input both rejected while human owns desktop');
+ async function coords(x,y){return page.locator('#screen').evaluate((el,p)=>{const r=el.getBoundingClientRect();return{x:r.left+p.x*r.width/el.naturalWidth,y:r.top+p.y*r.height/el.naturalHeight};},{x,y});}
+ async function click(x,y){const p=await coords(x,y);await page.mouse.click(p.x,p.y);}
+ await click(100,80);await page.locator('#keyboard').fill('小窗接管中文 😀');await waitFor(async()=>(await state()).text.includes('小窗接管中文 😀'));
+ const rect=await page.locator('#screen').boundingBox();assert.ok(rect.width<1280);pass('scaled preview maps mouse coordinates and commits Unicode into real native input');
+ await page.keyboard.press('Home');await page.keyboard.press('Shift+End');await page.keyboard.press('Backspace');await page.locator('#keyboard').fill('快捷键后重新输入');
+ await waitFor(async()=>(await state()).text==='快捷键后重新输入');pass('held Shift, navigation and key-up enable native selection/deletion');
+ await page.locator('#keyboard').dispatchEvent('compositionstart');
+ await page.locator('#keyboard').evaluate(el=>{el.value='输入法组合';el.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true}));});
+ await new Promise(r=>setTimeout(r,200));assert.equal((await state()).text,'快捷键后重新输入');
+ await page.locator('#keyboard').dispatchEvent('compositionend');await waitFor(async()=>(await state()).text==='快捷键后重新输入输入法组合');
+  pass('IME composition commits once after completion (synthetic browser event test; actual OS IME pending acceptance)');
+ await page.selectOption('#keymode','physical');await page.locator('#keyboard').focus();await page.keyboard.down('a');
+ await waitFor(()=>keys().length>keysBefore.length);await page.keyboard.up('a');await waitFor(()=>keys().length===keysBefore.length);
+ assert.ok((await state()).keyEvents.some(e=>e.key==='a'&&e.type==='2'));
+ await page.selectOption('#keymode','text');pass('physical keyboard mode sends native key-down and key-up, including held letter keys');
+ let chordPoint=await coords(70,240);await page.mouse.move(chordPoint.x,chordPoint.y);await page.mouse.down({button:'left'});await page.mouse.down({button:'right'});
+ await waitFor(async()=>(await health()).humanInput.heldButtons===2);await page.mouse.up({button:'left'});
+ await waitFor(async()=>(await health()).humanInput.heldButtons===1);await page.mouse.up({button:'right'});
+ await waitFor(async()=>(await health()).humanInput.heldButtons===0);pass('multiple mouse buttons can be held and released independently');
+ await click(100,145);await waitFor(async()=>(await state()).clicks===1);
+ let p=await coords(70,240),q=await coords(220,260);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(q.x,q.y,{steps:8});await page.mouse.up();
+ await waitFor(async()=>(await state()).dragged);await page.mouse.wheel(0,300);await waitFor(async()=>(await state()).wheel>0).catch(async e=>{console.log(JSON.stringify({wheelDiagnostic:wire.slice(-12),ui:await page.locator('#status').textContent(),error:await page.locator('#error').textContent(),native:await state()}));throw e;});
+ pass('small-window click, streamed drag and wheel reach real Tk application');
+ await page.click('#handback');await waitFor(async()=>!(await health()).humanInput.humanOwned);
+ meta(await call('desktop_act',{actions:[{type:'click',x:100,y:145}]}));await waitFor(async()=>(await state()).clicks===2);
+ assert.deepEqual(keys(),keysBefore);assert.equal(probe(ai).buttons,0);pass('explicit hand-back releases input and lets AI resume');
+ await page.locator('#takeover:not([disabled])').waitFor();await page.click('#takeover');await page.locator('#handback').waitFor();
+ await click(100,80);await page.keyboard.down('Shift');p=await coords(70,240);await page.mouse.move(p.x,p.y);await page.mouse.down();
+ await waitFor(async()=>(await health()).humanInput.heldKeys>0&&(await health()).humanInput.heldButtons>0);
+ await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
+ await waitFor(async()=>!(await health()).humanInput.humanOwned);assert.deepEqual(keys(),keysBefore);assert.equal(probe(ai).buttons,0);
+ assert.equal((await call('desktop_act',{actions:[{type:'wait',ms:0}]})).isError,true);
+ await page.mouse.up();await page.keyboard.up('Shift');pass('window blur releases held keys/buttons and leaves AI paused');
+ await resume();
+ async function connection(protocol='ic-'+token,origin=url.origin){
+  const ws=new WebSocket('ws://'+url.host+'/input',protocol,{headers:{Origin:origin}});sockets.add(ws);let next=1;const awaiting=new Map();
+  ws.on('message',raw=>{const m=JSON.parse(raw),p=awaiting.get(m.id);if(!p)return;clearTimeout(p.timer);awaiting.delete(m.id);m.error?p.reject(new Error(m.error)):p.resolve(m.result);});
+  ws.on('close',()=>{for(const p of awaiting.values()){clearTimeout(p.timer);p.reject(new Error('closed'));}awaiting.clear();});
+  await new Promise((resolve,reject)=>{ws.once('open',resolve);ws.once('error',reject);});
+  return {ws,rpc:(op,extra={})=>new Promise((resolve,reject)=>{const id=next++,timer=setTimeout(()=>reject(new Error('RPC timeout')),10000);awaiting.set(id,{resolve,reject,timer});ws.send(JSON.stringify({id,op,...extra}));})};
+ }
+ await assert.rejects(connection('ic-'+'0'.repeat(64)));await assert.rejects(connection('ic-'+token,'https://untrusted.invalid'));pass('input channel rejects wrong token and foreign origin');
+ let raw=await connection();await raw.rpc('takeover');
+ const other=await connection();await assert.rejects(other.rpc('takeover'),/already owns/);await assert.rejects(other.rpc('input',{events:[{type:'pointer',phase:'move',x:200,y:80}]}),/does not own/);assert.equal((await other.rpc('release')).released,false);other.ws.close();pass('second monitor cannot acquire, inject input or release another monitor ownership');
+ const beforeClick=(await state()).clicks;
+ for(let i=0;i<15;i++){const start=performance.now();await raw.rpc('input',{events:[{type:'pointer',phase:'move',x:100+i,y:80}]});latencies.push(performance.now()-start);}
+ await raw.rpc('input',{events:[{type:'key',key:'Control',down:true},{type:'pointer',phase:'down',x:100,y:80,button:'left'}]});
+ assert.ok(keys().length>0);assert.ok(probe(ai).buttons>0);raw.ws.terminate();
+ await waitFor(async()=>!(await health()).humanInput.humanOwned);assert.deepEqual(keys(),keysBefore);assert.equal(probe(ai).buttons,0);pass('socket termination immediately releases native held input without auto-resuming AI');
+ await resume();raw=await connection();await raw.rpc('takeover');
+ await raw.rpc('input',{events:[{type:'key',key:'Shift',down:true},{type:'pointer',phase:'down',x:100,y:80,button:'left'}]});
+ await assert.rejects(raw.rpc('input',{events:[{type:'pointer',phase:'move',x:3000,y:80}]}),/outside display/);
+ assert.deepEqual(keys(),keysBefore);assert.equal(probe(ai).buttons,0);assert.equal((await health()).humanInput.humanOwned,false);raw.ws.close();pass('invalid coordinates revoke ownership and release all held native input');
+ await resume();raw=await connection();await raw.rpc('takeover');
+ await raw.rpc('input',{events:[{type:'key',key:'Shift',down:true},{type:'pointer',phase:'down',x:100,y:80,button:'left'}]});
+ const expiry=performance.now();await waitFor(async()=>!(await health()).humanInput.humanOwned,7000);const leaseExpiryMs=performance.now()-expiry;
+ assert.deepEqual(keys(),keysBefore);assert.equal(probe(ai).buttons,0);
+ await waitFor(async()=>(await fetch(new URL('/state',url),{headers}).then(r=>r.json())).desktopOwner==='paused',3500);
+ assert.notEqual(raw.ws.readyState,WebSocket.OPEN);
+ pass('missing heartbeat expires lease and releases input in bridge watchdog');
+ await resume();meta(await call('desktop_observe'));await page.reload();await page.selectOption('#target','desktop');await page.locator('#takeover:not([disabled])').waitFor();
+ await page.click('#takeover');await page.locator('#handback').waitFor();await click(100,80);await page.keyboard.down('Control');await page.close();page=null;
+ await waitFor(async()=>!(await health()).humanInput.humanOwned);assert.deepEqual(keys(),keysBefore);pass('closing monitoring page releases held key and keeps desktop recoverable');
+ assert.deepEqual(probe(human),humanBefore);const unchanged=JSON.parse(await readFile(human.state,'utf8'));assert.equal(unchanged.text,'HUMAN_SENTINEL');assert.equal(unchanged.clicks,0);assert.equal(unchanged.dragged,false);pass('human reference display focus, pointer, held keys and application remain unchanged');
+ assert.deepEqual(pageErrors,[]);pass('actual viewer UI has no uncaught JavaScript errors');
+ latencies.sort((a,b)=>a-b);
+ await writeFile(join(root,'artifacts/linux-takeover.json'),JSON.stringify({date:new Date().toISOString(),checks,inputRoundTrip:{samples:latencies.length,medianMs:latencies[Math.floor(latencies.length/2)],p95Ms:latencies[Math.ceil(latencies.length*.95)-1],scope:'Authenticated WebSocket → local Node → private X11 pointer motion. Excludes model, screenshot transport and rendering.'},leaseExpiryMs,humanBefore,humanAfter:probe(human),scope:'Real Tk app in private Xvfb, real headless Chromium viewer with CSS scaling, second private display as human reference. Synthetic IME composition events; physical OS IME and macOS/Windows not tested. Native clipboard fallback for Unicode.'},null,2));
+ console.log('RESULT '+checks.length+' checks');
+}finally{
+ for(const ws of sockets)ws.terminate();await browser?.close();await client?.close().catch(()=>{});await transport?.close().catch(()=>{});await ai?.stop();await human?.stop();
+}

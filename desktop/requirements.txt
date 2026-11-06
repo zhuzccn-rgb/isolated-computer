@@ -1,0 +1,2 @@
+Pillow>=11.3,<13
+# Windows/macOS dedicated guests additionally install: pyautogui pyperclip

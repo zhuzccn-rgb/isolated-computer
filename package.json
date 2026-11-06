@@ -1,0 +1,30 @@
+{
+  "name": "isolated-computer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "verify:linux": "node tests/linux-integration.mjs",
+    "verify:handoff": "node tests/chrome-handoff.mjs",
+    "verify:firefox-scenarios": "node tests/firefox-scenarios.mjs",
+    "verify:accessibility": "node tests/linux-accessibility.mjs",
+    "verify:accessibility-regression": "node tests/linux-accessibility-regression.mjs",
+    "build:extensions": "node scripts/build-extensions.mjs",
+    "benchmark": "node tests/benchmark.mjs",
+    "verify:all": "node scripts/verify-all.mjs",
+    "verify:takeover": "node tests/linux-takeover.mjs",
+    "demo": "node scripts/demo.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "playwright": "1.63.0",
+    "ws": "8.18.3",
+    "zod": "4.6.5"
+  },
+  "license": "MIT"
+}

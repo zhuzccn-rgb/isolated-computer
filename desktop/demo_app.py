@@ -1,0 +1,42 @@
+"""A local native GTK application for manual acceptance; no external side effects."""
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk
+
+window = Gtk.Window(title='独立应用 · 验收练习')
+window.set_default_size(760, 660)
+box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+box.set_border_width(20)
+window.add(box)
+box.pack_start(Gtk.Label(label='这个应用运行在 AI 独立桌面内，可练习接管和交还。'), False, False, 0)
+entry = Gtk.Entry(); entry.set_placeholder_text('输入中文，试试 Shift + Home、Backspace 和粘贴')
+entry.get_accessible().set_name('验收输入框')
+box.pack_start(entry, False, False, 0)
+check = Gtk.CheckButton(label='勾选检查：人类与 AI 不能同时输入')
+box.pack_start(check, False, False, 0)
+combo = Gtk.ComboBoxText()
+for name in ['选择选项', '后台接力', '独立桌面', '人工接管']: combo.append_text(name)
+combo.set_active(0); combo.get_accessible().set_name('验收下拉框')
+box.pack_start(combo, False, False, 0)
+button = Gtk.Button(label='点击计数'); button.get_accessible().set_name('验收计数按钮')
+label = Gtk.Label(label='点击：0 · 拖拽：0 · 滚轮：0')
+counts = {'clicks':0, 'drag':0, 'scroll':0}
+def report(): label.set_text(f"点击：{counts['clicks']} · 拖拽：{counts['drag']} · 滚轮：{counts['scroll']}")
+def click(*_): counts['clicks'] += 1; report()
+button.connect('clicked', click); box.pack_start(button, False, False, 0)
+box.pack_start(label, False, False, 0)
+area = Gtk.EventBox(); area.set_size_request(650, 130); area.set_name('drag-area')
+area.add(Gtk.Label(label='在这里按住鼠标拖动，或滚动滚轮'))
+css=Gtk.CssProvider(); css.load_from_data(b'#drag-area { background-color: #3373b3; } #drag-area label { color: white; }')
+area.get_style_context().add_provider(css,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+def motion(_widget,event):
+ if event.state & Gdk.ModifierType.BUTTON1_MASK: counts['drag'] += 1; report()
+def scroll(*_): counts['scroll'] += 1; report(); return True
+area.connect('motion-notify-event',motion);area.connect('scroll-event',scroll)
+box.pack_start(Gtk.Label(label='在蓝色区域按住鼠标拖拽，或滚动滚轮。'),False,False,0)
+box.pack_start(area,False,False,0)
+scroller = Gtk.ScrolledWindow(); scroller.set_min_content_height(110)
+text = Gtk.TextView(); text.get_buffer().set_text('多行文字输入区域\n可在这里测试实际中文输入法。\n' + '\n'.join(f'滚动练习第 {n} 行' for n in range(1,30)))
+text.get_accessible().set_name('验收多行输入区'); scroller.add(text); box.pack_start(scroller,True,True,0)
+window.connect('destroy',Gtk.main_quit);window.show_all();Gtk.main()

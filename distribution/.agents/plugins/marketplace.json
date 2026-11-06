@@ -1,0 +1,12 @@
+{
+  "name": "isolated-computer-local",
+  "interface": { "displayName": "Independent Computer" },
+  "plugins": [
+    {
+      "name": "isolated-computer",
+      "source": { "source": "local", "path": "./plugins/isolated-computer" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

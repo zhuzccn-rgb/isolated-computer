@@ -1,0 +1,12 @@
+<!doctype html><html><meta charset="utf-8"><style>
+body{margin:0;background:#edf3fb;font:18px sans-serif;min-height:2400px} input{position:absolute;left:40px;top:60px;width:240px;height:40px;box-sizing:border-box}button{position:absolute;left:40px;top:120px;width:240px;height:50px}#drag{position:absolute;left:40px;top:210px;width:100px;height:60px;background:#4b88ec;touch-action:none}#popup{left:360px}#dialog{left:360px;top:60px}#result{position:absolute;left:40px;top:320px}
+</style><input id="text" aria-label="输入中文" placeholder="输入中文"><button id="click">点击计数</button><button id="popup">打开弹窗</button><button id="dialog">对话框</button><div id="drag">拖动</div><p id="result">计数：0</p>
+<script>
+const state={text:'',clicks:0,dragged:false,scrollY:0};let dragging=false;
+function report(){fetch('/event',{method:'POST',body:JSON.stringify(state)})}
+text.oninput=()=>{state.text=text.value;report()};click.onclick=()=>{state.clicks++;result.textContent='计数：'+state.clicks;report()};
+popup.onclick=()=>window.open('/popup');dialog.onclick=()=>alert('fixture dialog');
+drag.onpointerdown=e=>{dragging=true;drag.setPointerCapture(e.pointerId)};
+drag.onpointermove=e=>{if(dragging){drag.style.left=(e.clientX-30)+'px';drag.style.top=(e.clientY-20)+'px';state.dragged=true;report()}};
+drag.onpointerup=()=>{dragging=false;report()};onscroll=()=>{state.scrollY=scrollY;report()};
+</script></html>

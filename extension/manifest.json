@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Independent Computer · 接力网页",
+  "version": "0.1.0",
+  "description": "Hand a live tab to AI without reloading its unfinished form. Take it back when confirmation is needed.",
+  "minimum_chrome_version": "125",
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "debugger", "notifications"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html" },
+  "options_page": "options.html",
+  "icons": { "64": "icon.png" },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:*" }
+}

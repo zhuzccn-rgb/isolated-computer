@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "isolated-computer",
+  "version": "0.1.0",
+  "description": "Accessibility-first live browser handoff, independent background browsing and explicitly isolated native desktop control.",
+  "keywords": ["computer-use", "browser", "isolation", "mcp"]
+}

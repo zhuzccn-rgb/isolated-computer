@@ -1,0 +1,14 @@
+node_modules/
+.runtime/
+__pycache__/
+*.pyc
+artifacts/*.png
+artifacts/*.json
+!artifacts/.gitkeep
+
+dist/
+.env
+.env.*
+!.env.example
+*.token
+.DS_Store
